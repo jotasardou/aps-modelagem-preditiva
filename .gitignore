@@ -1,0 +1,18 @@
+# Ambientes Python e arquivos temporários
+.venv/
+__pycache__/
+.ipynb_checkpoints/
+*.pyc
+
+# Configurações e credenciais locais
+.env
+.env.*
+
+# Dados locais
+dados/
+
+# Enunciado fornecido pelo professor
+/Enunciado*.docx
+
+# Pacotes de entrega
+*.zip
