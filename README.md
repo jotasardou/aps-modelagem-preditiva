@@ -9,6 +9,10 @@ Paulo C. Marques F.
 Alunos:  
 
 João Pedro Sardou de Oliveira
+Pietra Rosa de Jesus Araújo
+Sávio da Silva de Souza
+Silas André Pereira de Brito
+
 
 ## Conteúdo
 
