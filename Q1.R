@@ -1,26 +1,22 @@
-# APS MODELAGEM PREDITIVA
+# QUESTAO 1
 
-# QUESTAO 1 ----
-
-install.packages('tree')
+# install.packages('tree') 
 library(tree)
 
-install.packages('pROC')
+# install.packages('pROC')  
 library(pROC)
 
-install.packages('ggplot2')
+# install.packages('ggplot2')  
 library(ggplot2)
 
+train <- read.csv("Q1_training.csv")
+test  <- read.csv("Q1_test.csv")
 
-train <- read.csv2("data/Q1_training.csv")
-test  <- read.csv2("data/Q1_test.csv")
-
-# Versao fator de y para a arvore de classificacao
+# Versao fator de "y" para a arvore de classificação
 train$y_fac <- factor(train$y, levels = c(0, 1))
 test$y_fac  <- factor(test$y, levels = c(0, 1))
 
-# Analise Exploratoria Visual
-
+# Analise Exploratoria 
 ggplot(train, aes(x = x1, y = x2, color = y_fac)) +
   geom_point(alpha = 0.7, size = 2) +
   scale_color_manual(values = c("0" = "#0072B2", "1" = "#D55E00"), name = "Classe (y)") +
@@ -28,7 +24,7 @@ ggplot(train, aes(x = x1, y = x2, color = y_fac)) +
        x = "x1", y = "x2") +
   theme_bw()
 
-# Modelo 1: Regressao Logistica
+# Modelo 1: Regressão Logística
 mod_logit <- glm(y ~ x1 + x2, data = train, family = binomial(link = "logit"))
 summary(mod_logit)
 
@@ -43,8 +39,7 @@ acc_logit  <- mean(pred_logit == test$y)
 sens_logit <- sum(pred_logit == 1 & test$y == 1) / sum(test$y == 1)
 esp_logit  <- sum(pred_logit == 0 & test$y == 0) / sum(test$y == 0)
 
-# Modelo 2: Arvore de Classificacao
-
+# Modelo 2: Árvore de Classificação
 mod_tree <- tree(y_fac ~ x1 + x2, data = train)
 summary(mod_tree)
 
@@ -53,7 +48,7 @@ plot(mod_tree)
 text(mod_tree, pretty = 2, cex = 0.8, font = 2)
 title("Árvore de Classificação - Treinamento")
 
-# Particao do espaco (x1, x2)
+# Partição do espaco (x1, x2)
 partition.tree(mod_tree, label = "y_fac",
                main = "Partição do Espaço (x1, x2) pela Árvore de Classificação", font = 2)
 points(train$x1, train$x2, col = ifelse(train$y == 1, "#D55E00", "#0072B2"), pch = 19, cex = 0.7)
@@ -70,9 +65,8 @@ sens_tree <- sum(pred_tree == 1 & test$y == 1) / sum(test$y == 1)
 esp_tree  <- sum(pred_tree == 0 & test$y == 0) / sum(test$y == 0)
 
 # Curvas ROC e AUC
-
-roc_logit <- roc(test$y, prob_logit, quiet = TRUE)
-roc_tree  <- roc(test$y, prob_tree, quiet = TRUE)
+roc_logit <- roc(test$y, prob_logit, direction = "<", quiet = TRUE) # direction = "<": a classe 1 deve ter probabilidades maiores. Sem isso, o pROC escolhe a
+roc_tree  <- roc(test$y, prob_tree,  direction = "<", quiet = TRUE) # direção sozinho (pelas medianas) e, para a logística, inverte a curva: AUC 0,515 = 1 - 0,485.
 
 plot(roc_tree, col = "#0072B2", lwd = 2, main = "Curvas ROC no Conjunto de Teste")
 plot(roc_logit, col = "#D55E00", lwd = 2, add = TRUE)
@@ -81,8 +75,7 @@ legend("bottomright",
                   paste0("Regressão Logística (AUC = ", round(auc(roc_logit), 4), ")")),
        col = c("#0072B2", "#D55E00"), lwd = 2)
 
-# Tabela Resumo de Comparacao no Teste
-
+# Tabela Resumo de Comparação no Teste
 resumo_q1 <- data.frame(
   Modelo          = c("Regressao Logistica", "Arvore de Classificacao"),
   Acuracia        = round(c(acc_logit, acc_tree), 4),
@@ -92,4 +85,3 @@ resumo_q1 <- data.frame(
   AUC             = round(c(as.numeric(auc(roc_logit)), as.numeric(auc(roc_tree))), 4)
 )
 print(resumo_q1)
-
