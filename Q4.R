@@ -1,6 +1,6 @@
-# Modelagem Preditiva - APS - Questão 4
-# Erro out-of-bag (OOB) x erro de teste conforme aumentamos o número de árvores
-# California housing, divisão 50/50, library(ranger)
+# QUESTÃO 4
+
+# Erro "out-of-bag" (OOB) "versus" erro de teste conforme aumenta-se o número de árvores
 
 library(tidyverse)
 library(rsample)
@@ -8,7 +8,7 @@ library(ranger)
 
 theme_set(theme_bw())
 
-california <- read_csv("data/california.csv", show_col_types = FALSE) |>
+california <- read_csv("california.csv", show_col_types = FALSE) |>
   mutate(ocean_proximity = as_factor(ocean_proximity)) |>
   rename(y = median_house_value)
 
@@ -19,13 +19,12 @@ split <- initial_split(california, prop = 0.5)
 trn <- training(split)
 tst <- testing(split)
 
-### Uma única floresta com B_max árvores, guardando quem ficou fora de cada amostra "bootstrap"
-
+### Uma única floresta com "B_max" árvores, guardando quem ficou fora de cada amostra "bootstrap"
 B_max <- 500
 
 rf <- ranger(y ~ ., data = trn, num.trees = B_max, keep.inbag = TRUE)
 
-# inbag[i, b] = número de vezes que a observação "i" entrou na amostra bootstrap da árvore "b"
+# inbag[i, b] = número de vezes que a observação "i" entrou na amostra "bootstrap" da árvore "b"
 inbag <- simplify2array(rf$inbag.counts)
 oob <- inbag == 0
 
@@ -35,9 +34,8 @@ mean(oob) # proporção de pares (observação, árvore) fora da amostra: deve f
 T_trn <- predict(rf, data = trn, predict.all = TRUE)$predictions
 T_tst <- predict(rf, data = tst, predict.all = TRUE)$predictions
 
-### Cálculo do erro OOB "na mão" para as florestas formadas pelas B primeiras árvores
+### Cálculo do erro OOB "na mão" para as florestas formadas pelas "B" primeiras árvores
 # Previsão OOB da observação "i": média das previsões das árvores b <= B em que "i" ficou fora.
-
 soma_oob <- t(apply(T_trn * oob, 1, cumsum)) # soma acumulada das previsões OOB
 n_oob    <- t(apply(oob, 1, cumsum))         # número acumulado de árvores OOB
 soma_tst <- t(apply(T_tst, 1, cumsum))       # soma acumulada das previsões no teste
@@ -59,14 +57,13 @@ curvas <- map_dfr(grade_B, \(B) {
 # Conferência: com todas as árvores, o cálculo manual coincide com o erro OOB do ranger
 c(manual = curvas$rmse_oob[B_max]^2, ranger = rf$prediction.error)
 
-# Tabela para o relatório
+# Tabela 
 curvas |>
   filter(B %in% c(1, 2, 5, 10, 25, 50, 100, 200, 300, 500)) |>
   mutate(diferenca = rmse_oob - rmse_teste) |>
   print(n = Inf)
 
 ### RMSE OOB "versus" RMSE de teste em função do número de árvores
-
 curvas |>
   select(B, OOB = rmse_oob, Teste = rmse_teste) |>
   pivot_longer(-B, names_to = "erro", values_to = "rmse") |>
@@ -79,7 +76,6 @@ curvas |>
        title = "California housing: erro out-of-bag x erro de teste")
 
 ### Diferença entre os dois erros
-
 ggplot(curvas, aes(x = B, y = rmse_oob - rmse_teste)) +
   geom_hline(yintercept = 0, linetype = "dashed") +
   geom_line(linewidth = 1, color = "dark green") +
