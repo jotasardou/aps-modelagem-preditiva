@@ -18,11 +18,11 @@ Silas André Pereira de Brito
 
 ### Parte teórica e experimental
 
-1. **Regressão logística versus árvore de classificação:** treinamento com `Q1_training.csv`, avaliação em `Q1_test.csv` e discurssão dos resultados.
+1. **Regressão logística versus árvore de classificação:** treinamento com `Q1_training.csv`, avaliação em `Q1_test.csv` e discussão dos resultados.
 
 2. **Bootstrap e bagging de árvores de regressão:** explicação dos métodos, implementação de bagging em California Housing e avaliação do ganho obtido com o método do subespaço aleatório.
 
-3. **Random FOrests:** aleatorização das variáveis candidatas em cada divisão, relação com o compromisso entre viés e variÂncia e distinção entre a proposta de Breiman e o subespaço aleatório de Ho.
+3. **Random Forests:** aleatorização das variáveis candidatas em cada divisão, relação com o compromisso entre viés e variância e distinção entre a proposta de Breiman e o subespaço aleatório de Ho.
 
 4. **Erro out-of-bag em regressão:** explicação do cálculo e comparação com o erro de teste em California Housing conforme aumenta o número de árvores.
 
@@ -30,7 +30,7 @@ Silas André Pereira de Brito
 
 ### Aplicações práticas
 
-6. **Churn bancário** comparação de k-NN, Regressão Logística, Árvore de Classificação, Random Forest e Boosting, utilizando acurácia, curvas ROC e AUC.
+6. **Churn bancário:** comparação de k-NN, Regressão Logística, Árvore de Classificação, Random Forest e Boosting, utilizando acurácia, curvas ROC e AUC.
 
 7. **Preços de automóveis usados:** comparação de Regressão Linear Múltipla, Árvore de Regressão, Random Forest e Boosting, utilizando RMSE e gráficos de valores previstos versus observados.
 
@@ -38,8 +38,27 @@ Silas André Pereira de Brito
 
 Em desenvolvimento. As aplicações práticas estão sendo construídas com explicações das escolhas metodológicas e avaliação em dados de teste.
 
-## Ambiente das aplicações em Python
+## Ambiente das aplicações em R
 
-Python 3.12. Dependências registradas em `requirements.txt`
+O código principal das aplicações é desenvolvido em R, conforme o enunciado da APS. A aplicação de churn está organizada em `aplicacoes.Rmd`.
 
-Para instalar as depêndencias do projeto: `python -m pip install -r requirements.txt`
+Pacotes utilizados:
+
+- `tidyverse`
+- `rsample`
+- `class`
+- `tree`
+- `ranger`
+- `gbm`
+- `pROC`
+- `knitr`
+- `rmarkdown`
+
+Para instalá-los no R:
+
+```r
+install.packages(c(
+  "tidyverse", "rsample", "tree", "ranger", "gbm", "pROC",
+  "knitr", "rmarkdown"
+))
+```

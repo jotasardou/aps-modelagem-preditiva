@@ -16,3 +16,10 @@ dados/
 
 # Pacotes de entrega
 *.zip
+
+# Arquivos temporários gerados pelo R
+Rplots.pdf
+
+# Exploração inicial em Python mantida apenas localmente
+/aplicacoes.ipynb
+/resultados/curvas_roc_churn.png

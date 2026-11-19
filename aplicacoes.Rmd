@@ -1,0 +1,515 @@
+---
+title: "APS — Aplicações práticas"
+author: "Grupo da APS"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+---
+
+Este notebook reúne as aplicações práticas da APS de Modelagem Preditiva Básica. O desenvolvimento atual corresponde à aplicação de **churn bancário**.
+
+O fluxo será: conhecer os dados, separar treinamento e teste, preparar as variáveis, ajustar os cinco modelos e discutir as métricas de teste. O conjunto de teste será reservado à avaliação final.
+
+## 1. Preparação do ambiente
+
+### 1.1. Bibliotecas
+
+```{r configuracao, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(rsample)
+library(class)
+library(tree)
+library(ranger)
+library(gbm)
+library(pROC)
+
+theme_set(theme_bw())
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.align = "center"
+)
+```
+
+### 1.2. Reprodutibilidade e constantes
+
+```{r constantes}
+SEMENTE <- 42
+PROPORCAO_TREINO <- 0.5
+CORTE <- 0.5
+```
+
+A semente fixa o estado inicial do gerador pseudoaleatório. Com os mesmos dados, sua ordem e configurações, ela permite reproduzir a divisão e os sorteios dos modelos.
+
+## 2. Aplicação 1 — Churn bancário
+
+**Objetivo:** prever `Exited`, que indica se o cliente saiu do banco.
+
+### 2.1. Leitura e inspeção dos dados
+
+```{r leitura}
+churn <- read.csv(
+  file.path("data", "churn.csv"),
+  stringsAsFactors = TRUE
+)
+
+churn$Exited <- factor(churn$Exited, levels = c("No", "Yes"))
+
+dim(churn)
+str(churn)
+sum(is.na(churn))
+table(churn$Exited)
+prop.table(table(churn$Exited)) * 100
+```
+
+A classe positiva é `Yes`, que representa churn. Como a maior parte dos clientes permanece, a acurácia será interpretada junto da sensibilidade, precisão e AUC.
+
+### 2.2. Divisão treino/teste
+
+```{r divisao}
+set.seed(SEMENTE)
+
+n_treino <- floor(PROPORCAO_TREINO * nrow(churn))
+proporcao_churn <- mean(churn$Exited == "Yes")
+n_churn_treino <- round(n_treino * proporcao_churn)
+n_nao_churn_treino <- n_treino - n_churn_treino
+
+indices_churn <- which(churn$Exited == "Yes")
+indices_nao_churn <- which(churn$Exited == "No")
+
+indices_treino <- c(
+  sample(indices_churn, n_churn_treino),
+  sample(indices_nao_churn, n_nao_churn_treino)
+)
+
+indices_treino <- sample(indices_treino)
+
+trn <- churn[indices_treino, ]
+tst <- churn[-indices_treino, ]
+
+nrow(trn)
+nrow(tst)
+prop.table(table(trn$Exited)) * 100
+prop.table(table(tst$Exited)) * 100
+```
+
+A estratificação preserva aproximadamente a proporção de churn nas duas metades. Todos os modelos utilizarão exatamente essa divisão.
+
+### 2.3. Funções de avaliação
+
+```{r funcoes-avaliacao}
+avaliar_classificador <- function(observado, previsto, probabilidade) {
+  observado <- factor(observado, levels = c("No", "Yes"))
+  previsto <- factor(previsto, levels = c("No", "Yes"))
+
+  matriz <- table(Observed = observado, Predicted = previsto)
+
+  acuracia <- sum(diag(matriz)) / sum(matriz)
+  sensibilidade <- matriz["Yes", "Yes"] / sum(matriz["Yes", ])
+  precisao <- matriz["Yes", "Yes"] / sum(matriz[, "Yes"])
+
+  curva <- roc(
+    response = observado,
+    predictor = probabilidade,
+    levels = c("No", "Yes"),
+    direction = "<",
+    quiet = TRUE
+  )
+
+  list(
+    matriz = matriz,
+    acuracia = acuracia,
+    sensibilidade = sensibilidade,
+    precisao = precisao,
+    roc = curva,
+    auc = as.numeric(auc(curva))
+  )
+}
+
+mostrar_avaliacao <- function(resultado) {
+  print(resultado$matriz)
+  cat(sprintf("Acurácia: %.2f%%\n", 100 * resultado$acuracia))
+  cat(sprintf("Sensibilidade: %.2f%%\n", 100 * resultado$sensibilidade))
+  cat(sprintf("Precisão: %.2f%%\n", 100 * resultado$precisao))
+  cat(sprintf("AUC: %.4f\n", resultado$auc))
+}
+```
+
+## 3. Modelos de classificação
+
+### 3.1. k-NN
+
+O k-NN classifica um cliente a partir das respostas dos clientes mais próximos no treinamento. Adotamos a regra de bolso (k \approx \sqrt{n_{treino}}), arredondando para um número ímpar.
+
+As variáveis numéricas são padronizadas usando apenas as médias e desvios do treinamento. As variáveis categóricas são transformadas em colunas indicadoras.
+
+```{r preparo-knn}
+preditoras <- setdiff(names(trn), "Exited")
+numericas <- preditoras[sapply(trn[preditoras], is.numeric)]
+categoricas <- preditoras[sapply(trn[preditoras], is.factor)]
+
+medias_trn <- sapply(trn[numericas], mean)
+desvios_trn <- sapply(trn[numericas], sd)
+
+X_trn_num <- scale(
+  trn[numericas],
+  center = medias_trn,
+  scale = desvios_trn
+)
+
+X_tst_num <- scale(
+  tst[numericas],
+  center = medias_trn,
+  scale = desvios_trn
+)
+
+X_trn_cat <- model.matrix(
+  ~ . - 1,
+  data = trn[categoricas]
+)
+
+X_tst_cat <- model.matrix(
+  ~ . - 1,
+  data = tst[categoricas]
+)
+
+stopifnot(identical(colnames(X_trn_cat), colnames(X_tst_cat)))
+
+X_trn_knn <- cbind(X_trn_num, X_trn_cat)
+X_tst_knn <- cbind(X_tst_num, X_tst_cat)
+
+k <- round(sqrt(nrow(trn)))
+if (k %% 2 == 0) k <- k + 1
+k
+```
+
+```{r modelo-knn}
+pred_knn <- knn(
+  train = X_trn_knn,
+  test = X_tst_knn,
+  cl = trn$Exited,
+  k = k,
+  prob = TRUE
+)
+
+prob_classe_vencedora <- attr(pred_knn, "prob")
+prob_knn <- ifelse(
+  pred_knn == "Yes",
+  prob_classe_vencedora,
+  1 - prob_classe_vencedora
+)
+
+pred_knn <- factor(
+  ifelse(prob_knn >= CORTE, "Yes", "No"),
+  levels = c("No", "Yes")
+)
+
+resultado_knn <- avaliar_classificador(
+  tst$Exited,
+  pred_knn,
+  prob_knn
+)
+
+mostrar_avaliacao(resultado_knn)
+```
+
+### 3.2. Regressão logística
+
+A regressão logística aprende uma combinação linear das características e converte o escore resultante em uma probabilidade por meio da função logística. O `glm` trata os fatores por meio de categorias de referência.
+
+```{r modelo-logistica}
+logistica <- glm(
+  Exited ~ .,
+  data = trn,
+  family = binomial
+)
+
+prob_logistica <- predict(
+  logistica,
+  newdata = tst,
+  type = "response"
+)
+
+pred_logistica <- factor(
+  ifelse(prob_logistica >= CORTE, "Yes", "No"),
+  levels = c("No", "Yes")
+)
+
+resultado_logistica <- avaliar_classificador(
+  tst$Exited,
+  pred_logistica,
+  prob_logistica
+)
+
+mostrar_avaliacao(resultado_logistica)
+```
+
+### 3.3. Árvore de classificação
+
+A árvore forma grupos por meio de divisões sucessivas das variáveis. A complexidade é escolhida por validação cruzada de cinco partes usando somente o treinamento. Em seguida, a árvore é podada para o tamanho com menor número de erros de classificação na validação.
+
+```{r modelo-arvore}
+set.seed(SEMENTE)
+
+arvore_completa <- tree(Exited ~ ., data = trn)
+
+cv_arvore <- cv.tree(
+  arvore_completa,
+  FUN = prune.misclass,
+  K = 5
+)
+
+melhor_tamanho <- cv_arvore$size[which.min(cv_arvore$dev)]
+
+arvore <- prune.misclass(
+  arvore_completa,
+  best = melhor_tamanho
+)
+
+melhor_tamanho
+
+plot(arvore, type = "uniform")
+text(arvore, cex = 0.7)
+
+prob_arvore <- predict(
+  arvore,
+  newdata = tst,
+  type = "vector"
+)[, "Yes"]
+
+pred_arvore <- factor(
+  ifelse(prob_arvore >= CORTE, "Yes", "No"),
+  levels = c("No", "Yes")
+)
+
+resultado_arvore <- avaliar_classificador(
+  tst$Exited,
+  pred_arvore,
+  prob_arvore
+)
+
+mostrar_avaliacao(resultado_arvore)
+```
+
+### 3.4. Random Forest
+
+A Random Forest combina árvores treinadas com amostras bootstrap. Em cada divisão, apenas um subconjunto aleatório das variáveis é candidato. Utilizamos 500 árvores e (mtry \approx \sqrt{p}).
+
+```{r modelo-random-forest}
+set.seed(SEMENTE)
+
+p <- length(preditoras)
+mtry_rf <- max(1, floor(sqrt(p)))
+
+rf <- ranger(
+  Exited ~ .,
+  data = trn,
+  num.trees = 500,
+  mtry = mtry_rf,
+  probability = TRUE,
+  respect.unordered.factors = "order",
+  seed = SEMENTE
+)
+
+prob_rf <- predict(
+  rf,
+  data = tst
+)$predictions[, "Yes"]
+
+pred_rf <- factor(
+  ifelse(prob_rf >= CORTE, "Yes", "No"),
+  levels = c("No", "Yes")
+)
+
+resultado_rf <- avaliar_classificador(
+  tst$Exited,
+  pred_rf,
+  prob_rf
+)
+
+mostrar_avaliacao(resultado_rf)
+```
+
+### 3.5. Gradient Boosting
+
+O Gradient Boosting constrói árvores sequencialmente. Cada nova árvore procura reduzir os erros ainda cometidos pelo conjunto anterior. Utilizamos até 500 árvores, profundidade 3, taxa de aprendizado 0,05 e 10% do treinamento para escolher o número de árvores por parada antecipada.
+
+```{r modelo-boosting}
+trn_boost <- trn |>
+  mutate(Exited01 = as.integer(Exited == "Yes")) |>
+  select(-Exited)
+
+tst_boost <- tst |>
+  mutate(Exited01 = as.integer(Exited == "Yes")) |>
+  select(-Exited)
+
+set.seed(SEMENTE)
+
+boost <- gbm(
+  Exited01 ~ .,
+  data = trn_boost,
+  distribution = "bernoulli",
+  n.trees = 500,
+  interaction.depth = 3,
+  shrinkage = 0.05,
+  n.minobsinnode = 10,
+  bag.fraction = 0.5,
+  train.fraction = 0.9,
+  verbose = FALSE
+)
+
+melhor_numero_arvores <- gbm.perf(
+  boost,
+  method = "test",
+  plot.it = FALSE
+)
+
+prob_boost <- predict(
+  boost,
+  newdata = tst_boost,
+  n.trees = melhor_numero_arvores,
+  type = "response"
+)
+
+pred_boost <- factor(
+  ifelse(prob_boost >= CORTE, "Yes", "No"),
+  levels = c("No", "Yes")
+)
+
+resultado_boost <- avaliar_classificador(
+  tst$Exited,
+  pred_boost,
+  prob_boost
+)
+
+melhor_numero_arvores
+mostrar_avaliacao(resultado_boost)
+```
+
+## 4. Comparação dos classificadores
+
+### 4.1. Métricas com corte de 0,5 e AUC
+
+```{r tabela-resultados}
+resultados <- list(
+  "k-NN" = resultado_knn,
+  "Regressão logística" = resultado_logistica,
+  "Árvore" = resultado_arvore,
+  "Random Forest" = resultado_rf,
+  "Gradient Boosting" = resultado_boost
+)
+
+tabela_resultados <- imap_dfr(
+  resultados,
+  function(resultado, modelo) {
+    tibble(
+      Modelo = modelo,
+      Acuracia = resultado$acuracia,
+      Sensibilidade = resultado$sensibilidade,
+      Precisao = resultado$precisao,
+      AUC = resultado$auc
+    )
+  }
+) |>
+  mutate(across(-Modelo, ~ round(100 * .x, 2)))
+
+tabela_resultados
+```
+
+A acurácia compara as classificações no corte de 0,5. Sensibilidade e precisão ajudam a revelar comportamentos ocultados pelo desbalanceamento. A AUC avalia a capacidade de ordenar os clientes por risco ao considerar diversos cortes.
+
+### 4.2. Curvas ROC
+
+```{r curvas-roc, fig.width=9, fig.height=7}
+cores <- c(
+  "darkorange",
+  "royalblue",
+  "darkgreen",
+  "magenta",
+  "red"
+)
+
+dir.create("resultados", showWarnings = FALSE)
+
+png(
+  filename = file.path("resultados", "curvas_roc_churn_R.png"),
+  width = 2400,
+  height = 1800,
+  res = 300
+)
+
+plot(
+  resultados[[1]]$roc,
+  col = cores[1],
+  lwd = 2,
+  legacy.axes = TRUE,
+  grid = TRUE,
+  xlab = "Taxa de falsos positivos",
+  ylab = "Taxa de verdadeiros positivos",
+  main = "Curvas ROC — modelos de churn"
+)
+
+for (i in 2:length(resultados)) {
+  plot(
+    resultados[[i]]$roc,
+    col = cores[i],
+    lwd = 2,
+    add = TRUE,
+    legacy.axes = TRUE
+  )
+}
+
+abline(a = 0, b = 1, lty = 2, col = "gray50")
+
+legendas <- map2_chr(
+  names(resultados),
+  resultados,
+  ~ sprintf("%s (AUC = %.3f)", .x, .y$auc)
+)
+
+legend(
+  "bottomright",
+  legend = legendas,
+  col = cores,
+  lwd = 2,
+  cex = 0.8,
+  bty = "n"
+)
+
+dev.off()
+
+plot(
+  resultados[[1]]$roc,
+  col = cores[1],
+  lwd = 2,
+  legacy.axes = TRUE,
+  grid = TRUE,
+  xlab = "Taxa de falsos positivos",
+  ylab = "Taxa de verdadeiros positivos",
+  main = "Curvas ROC — modelos de churn"
+)
+
+for (i in 2:length(resultados)) {
+  plot(resultados[[i]]$roc, col = cores[i], lwd = 2, add = TRUE)
+}
+
+abline(a = 0, b = 1, lty = 2, col = "gray50")
+legend(
+  "bottomright",
+  legend = legendas,
+  col = cores,
+  lwd = 2,
+  cex = 0.8,
+  bty = "n"
+)
+```
+
+## 5. Discussão
+
+A seleção final deve considerar simultaneamente a capacidade geral de ordenação, medida pela AUC, e o comportamento no corte operacional, descrito pela matriz de confusão, sensibilidade e precisão.
+
+O modelo com maior AUC constitui um candidato inicial forte, pois ordena melhor os clientes por risco ao longo dos diversos limiares. Entretanto, o corte de 0,5 não é necessariamente o melhor para a instituição. Se deixar passar um cliente que sairia for mais caro do que abordar um cliente que permaneceria, um corte menor pode ser apropriado, aumentando a sensibilidade ao custo de mais falsos positivos.
+
+A recomendação definitiva deve, portanto, combinar os resultados estatísticos desta tabela com os custos reais das ações de retenção e da perda de clientes.
