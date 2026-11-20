@@ -1,0 +1,294 @@
+---
+title: "Aplicação 2 — Preço de automóveis usados"
+author: "Grupo da APS"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+---
+
+O objetivo é prever `price` para veículos usados da Mercedes. Serão comparados Regressão Linear Múltipla, Árvore de Regressão, Random Forest e Gradient Boosting em uma divisão 50/50 entre treinamento e teste.
+
+A avaliação utiliza o RMSE de teste e gráficos de valores observados versus previstos. Quanto menor o RMSE, melhor o desempenho preditivo.
+
+## 1. Preparação do ambiente
+
+```{r configuracao, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(tree)
+library(ranger)
+library(gbm)
+
+theme_set(theme_bw())
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.align = "center"
+)
+
+SEMENTE <- 42
+PROPORCAO_TREINO <- 0.5
+```
+
+## 2. Leitura e inspeção dos dados
+
+```{r leitura}
+automoveis_bruto <- read.csv(
+  file.path("data", "used_cars.csv"),
+  stringsAsFactors = TRUE
+)
+
+dim(automoveis_bruto)
+str(automoveis_bruto)
+sum(is.na(automoveis_bruto))
+sum(duplicated(automoveis_bruto))
+summary(automoveis_bruto$price)
+
+automoveis <- automoveis_bruto |>
+  distinct()
+
+dim(automoveis)
+```
+
+As 15 duplicatas exatas são removidas antes da divisão para impedir que o mesmo registro apareça no treinamento e no teste. `trim` é tratado como uma variável categórica.
+
+## 3. Divisão treino/teste
+
+```{r divisao}
+set.seed(SEMENTE)
+
+n_treino <- floor(PROPORCAO_TREINO * nrow(automoveis))
+indices_treino <- sample(seq_len(nrow(automoveis)), n_treino)
+
+trn <- automoveis[indices_treino, ]
+tst <- automoveis[-indices_treino, ]
+
+nrow(trn)
+nrow(tst)
+```
+
+Os mesmos conjuntos serão utilizados por todos os modelos. O teste não participa da escolha de complexidade ou do treinamento.
+
+## 4. Função de avaliação e referência simples
+
+```{r avaliacao}
+rmse <- function(observado, previsto) {
+  sqrt(mean((observado - previsto)^2))
+}
+
+pred_referencia <- rep(mean(trn$price), nrow(tst))
+rmse_referencia <- rmse(tst$price, pred_referencia)
+
+rmse_referencia
+```
+
+A referência prevê para todos os veículos a média dos preços do treinamento. Um modelo útil deve apresentar RMSE menor que essa previsão constante.
+
+## 5. Regressão Linear Múltipla
+
+A regressão linear representa o preço como uma combinação aditiva das características. Os fatores são convertidos internamente em variáveis indicadoras, com uma categoria de referência.
+
+```{r regressao-linear}
+regressao_linear <- lm(price ~ ., data = trn)
+
+pred_linear <- predict(
+  regressao_linear,
+  newdata = tst
+)
+
+rmse_linear <- rmse(tst$price, pred_linear)
+rmse_linear
+```
+
+## 6. Árvore de Regressão
+
+A árvore divide os veículos em grupos e prevê, em cada folha, a média dos preços do treinamento. O tamanho é escolhido por validação cruzada de cinco partes usando somente o treinamento.
+
+```{r arvore}
+set.seed(SEMENTE)
+
+arvore_completa <- tree(price ~ ., data = trn)
+
+cv_arvore <- cv.tree(
+  arvore_completa,
+  K = 5
+)
+
+melhor_tamanho <- cv_arvore$size[which.min(cv_arvore$dev)]
+
+arvore <- prune.tree(
+  arvore_completa,
+  best = melhor_tamanho
+)
+
+melhor_tamanho
+
+plot(arvore, type = "uniform")
+text(arvore, cex = 0.7)
+
+pred_arvore <- predict(
+  arvore,
+  newdata = tst
+)
+
+rmse_arvore <- rmse(tst$price, pred_arvore)
+rmse_arvore
+```
+
+## 7. Random Forest
+
+A Random Forest combina 500 árvores treinadas com amostras bootstrap. Em cada divisão, aproximadamente um terço das variáveis explicativas fica disponível como candidata. A previsão final é a média das árvores.
+
+```{r random-forest}
+set.seed(SEMENTE)
+
+p <- ncol(trn) - 1
+mtry_rf <- max(1, floor(p / 3))
+
+random_forest <- ranger(
+  price ~ .,
+  data = trn,
+  num.trees = 500,
+  mtry = mtry_rf,
+  respect.unordered.factors = "order",
+  seed = SEMENTE
+)
+
+pred_rf <- predict(
+  random_forest,
+  data = tst
+)$predictions
+
+rmse_rf <- rmse(tst$price, pred_rf)
+rmse_rf
+```
+
+## 8. Gradient Boosting
+
+O boosting constrói árvores sequencialmente para corrigir os erros ainda cometidos pelo conjunto. Utilizamos até 500 árvores, profundidade 3, taxa de aprendizado 0,05 e 10% do treinamento para selecionar o número de árvores por validação interna.
+
+```{r boosting}
+set.seed(SEMENTE)
+
+boosting <- gbm(
+  price ~ .,
+  data = trn,
+  distribution = "gaussian",
+  n.trees = 500,
+  interaction.depth = 3,
+  shrinkage = 0.05,
+  n.minobsinnode = 10,
+  bag.fraction = 0.5,
+  train.fraction = 0.9,
+  verbose = FALSE
+)
+
+melhor_numero_arvores <- gbm.perf(
+  boosting,
+  method = "test",
+  plot.it = FALSE
+)
+
+pred_boost <- predict(
+  boosting,
+  newdata = tst,
+  n.trees = melhor_numero_arvores
+)
+
+rmse_boost <- rmse(tst$price, pred_boost)
+
+melhor_numero_arvores
+rmse_boost
+```
+
+## 9. Comparação por RMSE
+
+```{r tabela-rmse}
+tabela_rmse <- tibble(
+  Modelo = c(
+    "Referência (média)",
+    "Regressão Linear Múltipla",
+    "Árvore de Regressão",
+    "Random Forest",
+    "Gradient Boosting"
+  ),
+  RMSE = c(
+    rmse_referencia,
+    rmse_linear,
+    rmse_arvore,
+    rmse_rf,
+    rmse_boost
+  )
+) |>
+  arrange(RMSE) |>
+  mutate(RMSE = round(RMSE, 4))
+
+tabela_rmse
+```
+
+O RMSE está na mesma unidade de `price`. Como a base não documenta explicitamente moeda ou fator de escala, os resultados são interpretados na unidade registrada no arquivo.
+
+## 10. Valores observados versus previstos
+
+A diagonal representa previsões perfeitas. Pontos acima da linha indicam sobreprevisão e pontos abaixo indicam subprevisão. As mesmas escalas são usadas nos quatro painéis.
+
+```{r graficos, fig.width=10, fig.height=9}
+previsoes <- list(
+  "Regressão Linear Múltipla" = pred_linear,
+  "Árvore de Regressão" = pred_arvore,
+  "Random Forest" = pred_rf,
+  "Gradient Boosting" = pred_boost
+)
+
+limites <- range(
+  c(tst$price, unlist(previsoes)),
+  finite = TRUE
+)
+
+plotar_observado_previsto <- function() {
+  par(mfrow = c(2, 2), mar = c(4, 4, 3, 1))
+
+  for (nome in names(previsoes)) {
+    plot(
+      tst$price,
+      previsoes[[nome]],
+      pch = 19,
+      cex = 0.35,
+      col = rgb(0.1, 0.3, 0.7, 0.25),
+      xlim = limites,
+      ylim = limites,
+      xlab = "Preço observado",
+      ylab = "Preço previsto",
+      main = nome
+    )
+
+    abline(a = 0, b = 1, col = "red", lwd = 2, lty = 2)
+    grid()
+  }
+
+  par(mfrow = c(1, 1))
+}
+
+dir.create("resultados", showWarnings = FALSE)
+
+png(
+  file.path("resultados", "observado_previsto_automoveis_R.png"),
+  width = 2400,
+  height = 2200,
+  res = 300
+)
+
+plotar_observado_previsto()
+dev.off()
+
+plotar_observado_previsto()
+```
+
+## 11. Discussão
+
+A referência pela média obteve RMSE `r sprintf("%.4f", rmse_referencia)`. A regressão linear reduziu esse valor para `r sprintf("%.4f", rmse_linear)`, mostrando que as características contêm informação preditiva relevante. Entretanto, seu RMSE permaneceu superior ao dos métodos baseados em árvores, indicando que uma relação exclusivamente aditiva e linear não captura toda a estrutura dos preços.
+
+A árvore podada apresentou RMSE `r sprintf("%.4f", rmse_arvore)`. Os métodos de conjunto foram superiores: o Gradient Boosting alcançou `r sprintf("%.4f", rmse_boost)` e a Random Forest obteve o menor RMSE, `r sprintf("%.4f", rmse_rf)`. Assim, nesta implementação em R, a Random Forest constitui a recomendação inicial entre os modelos avaliados.
+
+Os gráficos complementam a comparação numérica: a proximidade da diagonal revela a qualidade das previsões, enquanto padrões sistemáticos acima ou abaixo dela indicam sobreprevisão ou subprevisão em determinadas faixas de preço. A conclusão permanece limitada a esta base, esta divisão e estas configurações.

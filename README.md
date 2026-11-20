@@ -36,11 +36,16 @@ Silas André Pereira de Brito
 
 ## Estado atual
 
-Em desenvolvimento. As aplicações práticas estão sendo construídas com explicações das escolhas metodológicas e avaliação em dados de teste.
+As duas aplicações práticas estão implementadas com explicações das escolhas metodológicas e avaliação em dados de teste.
 
 ## Ambiente das aplicações em R
 
-O código principal das aplicações é desenvolvido em R, conforme o enunciado da APS. A aplicação de churn está organizada em `aplicacoes.Rmd`.
+O código principal das aplicações é desenvolvido em R, conforme o enunciado da APS:
+
+- `aplicacoes.Rmd`: aplicação de churn bancário.
+- `aplicacao_automoveis.Rmd`: aplicação de preços de automóveis usados.
+
+O notebook `aplicacao_automoveis.ipynb` registra a exploração inicial e a tradução metodológica da segunda aplicação para R.
 
 Pacotes utilizados:
 
