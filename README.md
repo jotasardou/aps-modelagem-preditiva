@@ -45,8 +45,6 @@ O código principal das aplicações é desenvolvido em R, conforme o enunciado 
 - `aplicacoes.Rmd`: aplicação de churn bancário.
 - `aplicacao_automoveis.Rmd`: aplicação de preços de automóveis usados.
 
-O notebook `aplicacao_automoveis.ipynb` registra a exploração inicial e a tradução metodológica da segunda aplicação para R.
-
 Pacotes utilizados:
 
 - `tidyverse`

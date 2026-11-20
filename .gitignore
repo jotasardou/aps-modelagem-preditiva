@@ -22,4 +22,6 @@ Rplots.pdf
 
 # Exploração inicial em Python mantida apenas localmente
 /aplicacoes.ipynb
+/aplicacao_automoveis.ipynb
 /resultados/curvas_roc_churn.png
+/resultados/observado_previsto_automoveis_python.png
